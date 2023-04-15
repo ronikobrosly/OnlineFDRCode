@@ -1,7 +1,8 @@
 """
-GAI++ with memory
+GAI++ with memory algorithm
 """
 
+import json
 from os.path import expanduser
 import pdb
 
@@ -9,10 +10,49 @@ import matplotlib.pyplot as plt
 import numpy as np
 from numpy import sqrt, log, exp, mean, cumsum, sum, zeros, ones, argsort, argmin, argmax, array, maximum
 import pandas as pd
+from prophet import Prophet
+import scipy.stats
+
+
+
+######################################
+## GET TIME SERIES DATA
+######################################
+
+# Read in dataset
+df = pd.read_csv("~/Desktop/OnlineFDRCode/nab/data/realKnownCause/ambient_temperature_system_failure.csv")
+df.columns = ["ds", "y"]
+df["ds"] = pd.to_datetime(df["ds"])
+
+#initial_plot_df = df.set_index("ds")
+#initial_plot_df.plot(linestyle='-', lw=0.5, color = {"y": "steelblue"})
+#plt.show()
+
+# Fit the model
+m = Prophet(interval_width = 0.95, mcmc_samples = 0, uncertainty_samples = 10000)
+m.fit(df)
+
+# Extend dataset by 5-minute units (the units of the original dataset)
+future = m.make_future_dataframe(periods=0, freq = 'H')
+forecast = m.predict(future)
+forecast = forecast[["ds", 'yhat_lower', "yhat", 'yhat_upper']]
+
+# Append real values
+forecast["actual"] = df["y"]
+
+# Estimate standard error of predictions based on confidence interval width
+forecast["lower_width"] = forecast["yhat"] - forecast["yhat_lower"]
+forecast["upper_width"] = forecast["yhat_upper"] - forecast["yhat"]
+forecast["std"] = np.mean(forecast[["lower_width", "upper_width"]], axis = 1) / scipy.stats.norm.ppf(1-.05/2)
+forecast["z_score"] = np.abs((forecast["actual"] - forecast["yhat"]) / forecast["std"])
+forecast["p_value"] = scipy.stats.norm.sf(forecast["z_score"])*2
+
+
+
 
 
 # Desired false discovery rate
-alpha0 = 0.01
+fdr = 0.01
 
 # How many hypotheses will you test? (This should equal the length of the `pvec` array)
 numhyp = 1000
@@ -171,10 +211,10 @@ def thresh_func(x):
     return x
 
 
-def run_fdr(pvec, numhyp, gamma_vec, alpha0, startfac, mempar, prw_vec, penw_vec):
+def run_fdr(pvec, numhyp, gamma_vec, fdr, startfac, mempar, prw_vec, penw_vec):
 
     pen_min = min(penw_vec)
-    w0 = min(pen_min, startfac)*alpha0
+    w0 = min(pen_min, startfac)*fdr
     wealth_vec = np.zeros(numhyp + 1)
     wealth_vec[0] = w0
     alpha = np.zeros(numhyp + 1)
@@ -203,7 +243,7 @@ def run_fdr(pvec, numhyp, gamma_vec, alpha0, startfac, mempar, prw_vec, penw_vec
             this_alpha = alpha[k+1] # make sure first one doesn't do bullshit
 
             # Calc b, phi
-            b_k = alpha0 - (1-first)*np.true_divide(w0, penw_vec[k])
+            b_k = fdr - (1-first)*np.true_divide(w0, penw_vec[k])
             phi[k + 1] = min(this_alpha, mempar*wealth_vec[k] + (1-mempar)*flag*w0)
             # Adjust prior weight depending on penw, phi, b - calc prw, r
             max_weight = (phi[k+1]*thresh_func(penw_vec[k]))/((1-b_k)*this_alpha)
@@ -233,7 +273,7 @@ def run_fdr(pvec, numhyp, gamma_vec, alpha0, startfac, mempar, prw_vec, penw_vec
                 # first_gam = mempar**(k+1-last_rej[0])*gamma_vec[k + 1 - last_rej[0]]
                 #t_taoj = ((k+1)*np.ones(len(last_rej[0:-1]),dtype=int) - last_rej[0:-1])
                 # sum_gam = sum(np.multiply(mempar**t_taoj, gamma_vec[t_taoj])) - first_gam + gamma_vec[k+1 - last_rej[-1]]
-                # next_alpha = gamma_vec[k+1]*wealth_vec[0] + (alpha0 - w0/float(penw_vec[last_rej[0]]))*first_gam + alpha0*sum_gam
+                # next_alpha = gamma_vec[k+1]*wealth_vec[0] + (fdr - w0/float(penw_vec[last_rej[0]]))*first_gam + fdr*sum_gam
 
                 #gam_vec = np.append(np.multiply(mempar**t_taoj, gamma_vec[t_taoj]), gamma_vec[k + 1 - last_rej[-1]])
 
@@ -265,9 +305,9 @@ def run_fdr(pvec, numhyp, gamma_vec, alpha0, startfac, mempar, prw_vec, penw_vec
 
     return rej
     
-    
 
-rej = run_fdr(pvec, numhyp, gamma_vec, alpha0, startfac, mempar, prw_vec, penw_vec)
+
+rej = run_fdr(pvec, numhyp, gamma_vec, fdr, startfac, mempar, prw_vec, penw_vec)
 
 
 df = pd.DataFrame(
@@ -287,7 +327,10 @@ ax.spines["top"].set_visible(False)
 ax.spines["right"].set_visible(False)
 plt.xlabel("Time step", fontsize=14)
 plt.ylabel("-log10(p-value)", fontsize=14)
-plt.title(f"FDR = {alpha0}", fontsize=16)
+plt.title(
+    f"""Significant p-values\n(FDR = {fdr})""",
+    fontsize=16
+)
 plt.plot(df["time_step"], df["-log10_pvalue"], '-', linewidth=0.5, markersize=1.5)
 plt.plot(df_reject["time_step"], df_reject["-log10_pvalue"], 'o', color = 'red', markersize=3)
 plt.axhline(y=1.301, color='r', linewidth=0.8, linestyle='--', label = "p = 0.05")
