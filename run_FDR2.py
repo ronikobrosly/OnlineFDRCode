@@ -55,10 +55,8 @@ forecast["p_value"] = scipy.stats.norm.sf(forecast["z_score"])*2
 ######################################
 
 
-
-
 # Desired false discovery rate
-fdr = 0.5
+fdr = 0.05
 
 # How many hypotheses will you test? (This should equal the length of the `pvec` array)
 numhyp = len(forecast["p_value"])
@@ -194,6 +192,14 @@ def run_fdr(pvec, numhyp, gamma_vec, fdr, startfac, mempar, prw_vec, penw_vec):
 rej = run_fdr(pvec, numhyp, gamma_vec, fdr, startfac, mempar, prw_vec, penw_vec)
 
 
+
+
+
+
+######################################
+## PLOT RESULTS
+######################################
+
 results_df = pd.DataFrame(
     {
         'time_step': [i for i in np.arange(numhyp)],
@@ -203,37 +209,57 @@ results_df = pd.DataFrame(
     }
 )
 
+
 df_reject = results_df[results_df["reject"] == 1]
 
-plt.figure(figsize=(14,8))
-fig, axs = plt.subplots(2)
+plt.figure(figsize=(24,16))
+fig, axs = plt.subplots(2, 2)
 fig.suptitle(
     f"""Anomaly Detection Results\n(FDR = {fdr})""",
     fontsize=10
 )
 
-
-axs[0].spines["top"].set_visible(False)
-axs[0].spines["right"].set_visible(False)
+# Plot real values, forecast values, and confidence band
+axs[0][0].spines["top"].set_visible(False)
+axs[0][0].spines["right"].set_visible(False)
 initial_plot_df = df.set_index("ds")
-axs[0].set_xlabel("Datetime", fontsize=6)
-axs[0].set_ylabel("Value", fontsize=6)
-axs[0].set_title("Time Series Forecast", fontsize=8)
-axs[0].tick_params(axis='both', which='major', labelsize=5)
-axs[0].scatter(df.index, df["y"], c = "green", alpha = 0.6, s = 0.1, label = "actual values")
-axs[0].plot(forecast.index, forecast["yhat"], linestyle='-', lw=0.4, color = "black", label = "forecast values")
-axs[0].fill_between(forecast.index, forecast["yhat_lower"], forecast["yhat_upper"], color = 'steelblue', edgecolor = None, alpha = 0.3, label = "confidence interval")
-axs[0].legend(loc="upper left", fontsize=6)
+axs[0][0].set_xlabel("Datetime", fontsize=6)
+axs[0][0].set_ylabel("Value", fontsize=6)
+axs[0][0].set_title("Time Series Forecast", fontsize=8)
+axs[0][0].tick_params(axis='both', which='major', labelsize=5)
+axs[0][0].plot(forecast.index, forecast["yhat"], linestyle='-', lw=0.2, color = "black", label = "forecast values")
+axs[0][0].fill_between(forecast.index, forecast["yhat_lower"], forecast["yhat_upper"], color = 'steelblue', edgecolor = None, alpha = 0.3, label = "confidence interval")
+axs[0][0].scatter(df.index, df["y"], facecolors="green", marker = 'o', edgecolors = 'none', alpha = 0.9, s = 0.3, label = "actual values")
+axs[0][0].legend(loc="upper left", fontsize=6)
 
-axs[1].spines["top"].set_visible(False)
-axs[1].spines["right"].set_visible(False)
-axs[1].set_xlabel("Time step", fontsize=6)
-axs[1].set_ylabel("-log10(p-value)", fontsize=6)
-axs[1].set_title("Anomaly p-values", fontsize=8)
-axs[1].tick_params(axis='both', which='major', labelsize=5)
-axs[1].plot(results_df["time_step"], results_df["-log10_pvalue"], '-', linewidth=0.5, markersize=1.5)
-axs[1].plot(df_reject["time_step"], df_reject["-log10_pvalue"], 'o', color = 'red', markersize=3)
-axs[1].axhline(y=1.301, color='r', linewidth=0.8, linestyle='--', label = "p = 0.05")
-axs[1].legend(loc="upper left", fontsize=6)
+# Plot p-values and hypothesis rejections
+axs[1][0].spines["top"].set_visible(False)
+axs[1][0].spines["right"].set_visible(False)
+axs[1][0].set_xlabel("Time step", fontsize=6)
+axs[1][0].set_ylabel("-log10(p-value)", fontsize=6)
+axs[1][0].set_title("Anomaly p-values", fontsize=8)
+axs[1][0].tick_params(axis='both', which='major', labelsize=5)
+axs[1][0].plot(results_df["time_step"], results_df["-log10_pvalue"], '-', linewidth=0.2, markersize=1.5)
+axs[1][0].scatter(df_reject["time_step"], df_reject["-log10_pvalue"], facecolors="red", marker = 'o', edgecolors = 'none', alpha = 0.9, s = 0.75, label = "rejection")
+axs[1][0].axhline(y=1.301, color='r', linewidth=0.8, linestyle='--', label = "p = 0.05")
+axs[1][0].legend(loc="upper left", fontsize=6)
+
+# Plot gamma memory decay
+axs[0][1].spines["top"].set_visible(False)
+axs[0][1].spines["right"].set_visible(False)
+axs[0][1].set_xlabel("Time step", fontsize=6)
+axs[0][1].set_ylabel("Gamma value", fontsize=6)
+axs[0][1].set_title("Memory decay (gamma)", fontsize=8)
+axs[0][1].tick_params(axis='both', which='major', labelsize=5)
+axs[0][1].plot(range(1, len(df) + 1), gamma_vec[0:len(df)], '-', linewidth=0.5, markersize=1.5)
+
+# Empty for now
+axs[1][1].spines["top"].set_visible(False)
+axs[1][1].spines["right"].set_visible(False)
+axs[1][1].set_xlabel("", fontsize=6)
+axs[1][1].set_ylabel("", fontsize=6)
+axs[1][1].set_title("", fontsize=8)
+axs[1][1].tick_params(axis='both', which='major', labelsize=5)
+
 fig.tight_layout()
-fig.savefig(expanduser("~/Desktop/ts_results.png"), dpi = 500)
+fig.savefig(expanduser("~/Desktop/ts_results.png"), dpi = 800)
